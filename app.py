@@ -10,6 +10,13 @@ import gradio as gr
 import numpy as np
 from PIL import Image
 
+# Conditional import for HuggingFace Spaces ZeroGPU
+try:
+    import spaces
+    SPACES_AVAILABLE = True
+except ImportError:
+    SPACES_AVAILABLE = False
+
 from image_processor import read_image_array, normalize_to_uint8, array_to_display_pil
 from image_processor.image_segmentation import run_cellpose_segmentation, masks_to_overlay
 
@@ -173,7 +180,7 @@ def show_selected_image(files, display_mode, index):
 # Segmentation
 # =============================================================================
 
-def run_segmentation(files, index, channel_selection, channel_combination):
+def _run_segmentation_impl(files, index, channel_selection, channel_combination):
     """Run Cellpose segmentation on the selected image/channels."""
     if not files or index is None:
         return None, None
@@ -197,6 +204,13 @@ def run_segmentation(files, index, channel_selection, channel_combination):
     except Exception as e:
         print(f"Error in run_segmentation: {e}")
         return None, None
+
+
+# Apply @spaces.GPU() decorator only on HuggingFace Spaces
+if SPACES_AVAILABLE:
+    run_segmentation = spaces.GPU()(_run_segmentation_impl)
+else:
+    run_segmentation = _run_segmentation_impl
 
 
 # =============================================================================
