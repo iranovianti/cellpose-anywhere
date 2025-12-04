@@ -1,0 +1,13 @@
+gradio
+pillow
+numpy
+tifffile
+cellpose
+matplotlib
+opencv-python
+
+# If you encounter ASGI/pydantic errors on Windows, use these pinned versions:
+# gradio==4.36.0
+# gradio_client==1.0.1
+# pydantic==2.7.4
+# huggingface_hub==0.34.3
