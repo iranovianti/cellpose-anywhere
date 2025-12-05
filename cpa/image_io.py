@@ -42,24 +42,28 @@ def read_image_array(file):
     return arr
 
 
-def save_masks_as_rois(masks, filename_base, output_dir=None):
-    """Save segmentation masks as ROI files.
+def save_masks_as_rois(masks, filename_base):
+    """Save segmentation masks as ROI files for download.
     
     Args:
         masks: labeled mask array from Cellpose
         filename_base: base filename (without extension)
-        output_dir: directory to save ROIs (defaults to temp directory)
     
     Returns:
-        Path to the saved ROI zip file
+        Absolute path to the saved ROI zip file
     """
     from cellpose import io as cellpose_io
-    import tempfile
+    import glob
     
-    if output_dir is None:
-        output_dir = tempfile.gettempdir()
+    # cellpose_io.save_rois creates a file with _rois.zip suffix
+    output_path_base = f"{filename_base}_ROI"
+    cellpose_io.save_rois(masks, output_path_base)
     
-    output_path = os.path.join(output_dir, f"{filename_base}_ROI.zip")
-    cellpose_io.save_rois(masks, output_path)
+    # Find the actual created file
+    zip_files = glob.glob(f"{output_path_base}*.zip")
+    if zip_files:
+        # Return absolute path
+        abs_path = os.path.abspath(zip_files[0])
+        return abs_path
     
-    return output_path
+    return None

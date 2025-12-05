@@ -17,7 +17,7 @@ try:
 except ImportError:
     SPACES_AVAILABLE = False
 
-from cpa import read_image_array, normalize_to_uint8, array_to_display_pil
+from cpa import read_image_array, normalize_to_uint8, array_to_display_pil, save_masks_as_rois
 from cpa.image_segmentation import run_cellpose_segmentation, masks_to_overlay
 
 
@@ -213,6 +213,20 @@ else:
     run_segmentation = _run_segmentation_impl
 
 
+def download_rois(masks, files, index):
+    """Save masks as ImageJ ROI zip file for download."""
+    if masks is None or not files or index is None:
+        return None
+    
+    try:
+        filename_base = os.path.splitext(os.path.basename(files[index].name))[0]
+        roi_path = save_masks_as_rois(masks, filename_base)
+        return roi_path
+    except Exception as e:
+        print(f"Error saving ROIs: {e}")
+        return None
+
+
 # =============================================================================
 # Gradio UI
 # =============================================================================
@@ -290,6 +304,9 @@ with gr.Blocks() as demo:
                         interactive=False,
                         height=400,
                     )
+                    download_roi_file = gr.File(
+                        label="Download ROI",
+                    )
 
     # =========================================================================
     # Event Handlers
@@ -356,11 +373,21 @@ with gr.Blocks() as demo:
         outputs=segmentation_result,
     )
 
-    # Run segmentation
+    # Run segmentation and generate ROI download
+    # Note: Using gr.File with direct path return instead of gr.DownloadButton
+    # because gr.update() with DownloadButton didn't trigger downloads properly
+    def run_and_show_download(files, index, channel_sel, channel_comb):
+        result, masks = run_segmentation(files, index, channel_sel, channel_comb)
+        if masks is not None and files and index is not None:
+            roi_path = download_rois(masks, files, index)
+            if roi_path:
+                return result, masks, roi_path
+        return result, masks, None
+    
     run_cellpose_btn.click(
-        run_segmentation,
+        run_and_show_download,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=[segmentation_result, current_masks],
+        outputs=[segmentation_result, current_masks, download_roi_file],
     )
 
     # Update main image display
