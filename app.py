@@ -17,8 +17,8 @@ try:
 except ImportError:
     SPACES_AVAILABLE = False
 
-from image_processor import read_image_array, normalize_to_uint8, array_to_display_pil
-from image_processor.image_segmentation import run_cellpose_segmentation, masks_to_overlay
+from cpa import read_image_array, normalize_to_uint8, array_to_display_pil
+from cpa.image_segmentation import run_cellpose_segmentation, masks_to_overlay
 
 
 # =============================================================================
