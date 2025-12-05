@@ -36,7 +36,7 @@ See `requirements.txt`
 ## TODO
 
 - [ ] Make `SEGMENTATION_SIZE` configurable (currently hardcoded to 128×128 for faster processing, but incompatible with DIC images)
-- [ ] Add download button for ImageJ ROI files (investigate using `gr.File` instead of Cellpose's built-in `save_rois` zip output)
+- [x] ~~Add download button for ImageJ ROI files~~ (implemented with `gr.File` - works well enough)
 - [ ] Improve channel display in `selected_image`:
   - Label each channel when `display_mode` is Grayscale
   - Show warning when RGB Stack mode is used with >3 channels (or >4 for RGBA), suggesting Channel Grayscale mode instead
