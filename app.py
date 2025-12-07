@@ -236,7 +236,7 @@ with gr.Blocks() as demo:
 
     # State
     selected_index = gr.State(None)
-    current_masks = gr.State(None)
+    masks_cache = gr.State({})  # Dict mapping filename -> {"masks": array, "roi_path": path}
 
     with gr.Row():
         # Left column: File upload
@@ -356,6 +356,29 @@ with gr.Blocks() as demo:
         outputs=channel_combination,
     )
 
+    # Restore cached mask overlay or show channel preview when switching images
+    def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache):
+        """Show cached segmentation overlay if available, otherwise show channel preview."""
+        if not files or index is None:
+            return None, None
+        
+        filename = os.path.basename(files[index].name)
+        if filename in cache:
+            # Restore cached mask overlay and ROI path
+            cached = cache[filename]
+            masks = cached["masks"]
+            roi_path = cached["roi_path"]
+            arr = read_image_array(files[index])
+            img_array = parse_channel_selection(arr, channel_sel, channel_comb)
+            if img_array is not None:
+                overlay = masks_to_overlay(masks, img_array, alpha=0.5)
+                if isinstance(overlay, Image.Image):
+                    overlay = overlay.convert("RGB")
+                return overlay, roi_path
+        
+        # No cached mask, show channel preview
+        return show_channel_preview(files, index, channel_sel, channel_comb), None
+
     # Update channel preview
     channel_selector.change(
         show_channel_preview,
@@ -368,26 +391,29 @@ with gr.Blocks() as demo:
         outputs=segmentation_result,
     )
     selected_index.change(
-        show_channel_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=segmentation_result,
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        outputs=[segmentation_result, download_roi_file],
     )
 
     # Run segmentation and generate ROI download
     # Note: Using gr.File with direct path return instead of gr.DownloadButton
     # because gr.update() with DownloadButton didn't trigger downloads properly
-    def run_and_show_download(files, index, channel_sel, channel_comb):
+    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache):
         result, masks = run_segmentation(files, index, channel_sel, channel_comb)
         if masks is not None and files and index is not None:
+            # Cache masks and ROI path by filename
+            filename = os.path.basename(files[index].name)
             roi_path = download_rois(masks, files, index)
+            cache[filename] = {"masks": masks, "roi_path": roi_path}
             if roi_path:
-                return result, masks, roi_path
-        return result, masks, None
+                return result, cache, roi_path
+        return result, cache, None
     
     run_cellpose_btn.click(
-        run_and_show_download,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=[segmentation_result, current_masks, download_roi_file],
+        run_and_cache_masks,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        outputs=[segmentation_result, masks_cache, download_roi_file],
     )
 
     # Update main image display
