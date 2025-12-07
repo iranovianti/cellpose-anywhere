@@ -78,6 +78,7 @@ def parse_channel_selection(arr, channel_selection, channel_combination):
     
     Returns:
         numpy array or None if invalid selection
+        For 'All (Grayscale)', returns a composite side-by-side image
     """
     if arr.ndim == 2:
         return arr
@@ -86,6 +87,14 @@ def parse_channel_selection(arr, channel_selection, channel_combination):
         return None
 
     h, w, c = arr.shape
+
+    if channel_selection == "All (Grayscale)":
+        # Create side-by-side grayscale composite
+        arr8 = normalize_to_uint8(arr)
+        comp = np.zeros((h, w * c), dtype=np.uint8)
+        for i in range(c):
+            comp[:, i * w:(i + 1) * w] = arr8[:, :, i]
+        return comp
 
     if channel_selection == "Stack":
         return arr
@@ -146,34 +155,6 @@ def show_channel_preview(files, index, channel_selection, channel_combination):
     except Exception as e:
         print(f"Error in show_channel_preview: {e}")
         return None
-
-
-def show_selected_image(files, display_mode, index):
-    """Render the selected file according to display mode."""
-    if not files or index is None:
-        return None
-
-    arr = read_image_array(files[index])
-
-    if arr.ndim == 2:
-        if display_mode == "RGB Stack":
-            return array_to_display_pil(arr)
-        else:
-            arr8 = normalize_to_uint8(arr)
-            return Image.fromarray(arr8).convert("L")
-
-    if arr.ndim == 3:
-        h, w, c = arr.shape
-        if display_mode == "RGB Stack":
-            return array_to_display_pil(arr)
-        else:
-            arr8 = normalize_to_uint8(arr)
-            comp = np.zeros((h, w * c, 3), dtype=np.uint8)
-            for i in range(c):
-                comp[:, i * w:(i + 1) * w, :] = arr8[:, :, i:i+1]
-            return Image.fromarray(comp)
-
-    return array_to_display_pil(arr)
 
 
 # =============================================================================
@@ -256,57 +237,46 @@ with gr.Blocks() as demo:
             )
 
             with gr.Row():
-                # Image preview
-                with gr.Column(scale=1):
-                    display_mode = gr.Radio(
-                        label="Display Mode",
-                        choices=["RGB Stack", "Channel Grayscale"],
-                        value="RGB Stack",
-                    )
-                    selected_image = gr.Image(
-                        label="Selected Image",
+                # Left: Channel selection and image display
+                with gr.Column(scale=2):
+                    with gr.Row():
+                        channel_selector = gr.Dropdown(
+                            label="Channel",
+                            choices=["Stack"],
+                            value="Stack",
+                            interactive=True,
+                            scale=2,
+                        )
+                        channel_combination = gr.Textbox(
+                            label="Custom Channels",
+                            placeholder="e.g., 0, 1, 2",
+                            interactive=False,
+                            scale=1,
+                        )
+
+                    image_display = gr.Image(
+                        label="Image",
                         interactive=False,
                         height=400,
                     )
-                    file_metadata = gr.Dataframe(
-                        label="File Metadata",
-                        headers=["Property", "Value"],
-                        interactive=False,
-                        wrap=True,
-                    )
 
-                # Segmentation
+                # Right: Segmentation controls and download
                 with gr.Column(scale=1):
-                    with gr.Group():
-                        gr.Markdown("### Segmentation")
-                        with gr.Row():
-                            channel_selector = gr.Dropdown(
-                                label="Channel",
-                                choices=["Stack"],
-                                value="Stack",
-                                interactive=True,
-                                scale=2,
-                            )
-                            channel_combination = gr.Textbox(
-                                label="Custom Channels",
-                                placeholder="e.g., 0, 1, 2",
-                                interactive=False,
-                                scale=1,
-                            )
-                            run_cellpose_btn = gr.Button(
-                                "Run Cellpose",
-                                variant="primary",
-                                scale=1,
-                            )
-
-                    segmentation_result = gr.Image(
-                        label="Segmentation Result",
-                        interactive=False,
-                        height=400,
+                    run_cellpose_btn = gr.Button(
+                        "Run Cellpose",
+                        variant="primary",
                     )
                     download_roi_file = gr.File(
                         label="Download ROI",
                     )
+
+            # Metadata
+            file_metadata = gr.Dataframe(
+                label="File Metadata",
+                headers=["Property", "Value"],
+                interactive=False,
+                wrap=True,
+            )
 
     # =========================================================================
     # Event Handlers
@@ -339,7 +309,7 @@ with gr.Blocks() as demo:
         arr = read_image_array(files[index])
         if arr.ndim == 3:
             _, _, c = arr.shape
-            choices = ["Stack", "Custom"] + [f"Channel {i}" for i in range(c)]
+            choices = ["Stack", "All (Grayscale)", "Custom"] + [f"Channel {i}" for i in range(c)]
             return gr.update(choices=choices, value="Stack")
         return gr.update(choices=["Stack"], value="Stack")
 
@@ -379,21 +349,23 @@ with gr.Blocks() as demo:
         # No cached mask, show channel preview
         return show_channel_preview(files, index, channel_sel, channel_comb), None
 
-    # Update channel preview
+    # Update image display when channel selection changes
     channel_selector.change(
         show_channel_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=segmentation_result,
+        outputs=image_display,
     )
     channel_combination.submit(
         show_channel_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=segmentation_result,
+        outputs=image_display,
     )
+
+    # Restore cached mask overlay or show channel preview when switching images
     selected_index.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
-        outputs=[segmentation_result, download_roi_file],
+        outputs=[image_display, download_roi_file],
     )
 
     # Run segmentation and generate ROI download
@@ -413,19 +385,7 @@ with gr.Blocks() as demo:
     run_cellpose_btn.click(
         run_and_cache_masks,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
-        outputs=[segmentation_result, masks_cache, download_roi_file],
-    )
-
-    # Update main image display
-    selected_index.change(
-        show_selected_image,
-        inputs=[file_uploader, display_mode, selected_index],
-        outputs=selected_image,
-    )
-    display_mode.change(
-        show_selected_image,
-        inputs=[file_uploader, display_mode, selected_index],
-        outputs=selected_image,
+        outputs=[image_display, masks_cache, download_roi_file],
     )
 
     # Update metadata
