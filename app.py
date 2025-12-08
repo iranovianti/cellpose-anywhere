@@ -349,16 +349,16 @@ with gr.Blocks() as demo:
         # No cached mask, show channel preview
         return show_channel_preview(files, index, channel_sel, channel_comb), None
 
-    # Update image display when channel selection changes
+    # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
-        show_channel_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=image_display,
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        outputs=[image_display, download_roi_file],
     )
     channel_combination.submit(
-        show_channel_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination],
-        outputs=image_display,
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        outputs=[image_display, download_roi_file],
     )
 
     # Restore cached mask overlay or show channel preview when switching images
