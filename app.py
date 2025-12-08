@@ -140,24 +140,6 @@ def array_to_preview(arr):
 
 
 # =============================================================================
-# Display Functions
-# =============================================================================
-
-def show_channel_preview(files, index, channel_selection, channel_combination):
-    """Display selected channel(s) as preview."""
-    if not files or index is None:
-        return None
-
-    try:
-        arr = read_image_array(files[index])
-        selected = parse_channel_selection(arr, channel_selection, channel_combination)
-        return array_to_preview(selected)
-    except Exception as e:
-        print(f"Error in show_channel_preview: {e}")
-        return None
-
-
-# =============================================================================
 # Segmentation
 # =============================================================================
 
@@ -194,14 +176,14 @@ else:
     run_segmentation = _run_segmentation_impl
 
 
-def download_rois(masks, files, index):
+def download_rois(masks, files, index, mask_number=1):
     """Save masks as ImageJ ROI zip file for download."""
     if masks is None or not files or index is None:
         return None
     
     try:
         filename_base = os.path.splitext(os.path.basename(files[index].name))[0]
-        roi_path = save_masks_as_rois(masks, filename_base)
+        roi_path = save_masks_as_rois(masks, filename_base, mask_number)
         return roi_path
     except Exception as e:
         print(f"Error saving ROIs: {e}")
@@ -217,7 +199,8 @@ with gr.Blocks() as demo:
 
     # State
     selected_index = gr.State(None)
-    masks_cache = gr.State({})  # Dict mapping filename -> {"masks": array, "roi_path": path}
+    masks_cache = gr.State({})  # Dict mapping filename -> list of {"masks": array, "roi_path": path}
+    MAX_MASKS = 4
 
     with gr.Row():
         # Left column: File upload
@@ -267,7 +250,20 @@ with gr.Blocks() as demo:
                         variant="primary",
                     )
                     download_roi_file = gr.File(
-                        label="Download ROI",
+                        label="Download ROIs",
+                        file_count="multiple",
+                    )
+                    gr.Markdown("**Display Layers**")
+                    show_image_layer = gr.Checkbox(
+                        label="Image",
+                        value=True,
+                        interactive=True,
+                    )
+                    mask_checkboxes = gr.CheckboxGroup(
+                        label="Masks",
+                        choices=[],
+                        value=[],
+                        interactive=True,
                     )
 
             # Metadata
@@ -327,65 +323,152 @@ with gr.Blocks() as demo:
     )
 
     # Restore cached mask overlay or show channel preview when switching images
-    def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache):
+    def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks):
         """Show cached segmentation overlay if available, otherwise show channel preview."""
         if not files or index is None:
             return None, None
         
         filename = os.path.basename(files[index].name)
-        if filename in cache:
-            # Restore cached mask overlay and ROI path
-            cached = cache[filename]
-            masks = cached["masks"]
-            roi_path = cached["roi_path"]
-            arr = read_image_array(files[index])
-            img_array = parse_channel_selection(arr, channel_sel, channel_comb)
-            if img_array is not None:
-                overlay = masks_to_overlay(masks, img_array, alpha=0.5)
-                if isinstance(overlay, Image.Image):
-                    overlay = overlay.convert("RGB")
-                return overlay, roi_path
+        cached_list = cache.get(filename, [])
         
-        # No cached mask, show channel preview
-        return show_channel_preview(files, index, channel_sel, channel_comb), None
+        # Collect ROI paths from all masks
+        roi_paths = [item["roi_path"] for item in cached_list if item.get("roi_path")]
+        
+        arr = read_image_array(files[index])
+        img_array = parse_channel_selection(arr, channel_sel, channel_comb)
+        if img_array is None:
+            return None, None
+        
+        # Get selected mask indices (e.g., ["Mask 1", "Mask 3"] -> [0, 2])
+        selected_indices = []
+        for m in selected_masks:
+            try:
+                idx = int(m.split()[-1]) - 1  # "Mask 1" -> 0
+                if 0 <= idx < len(cached_list):
+                    selected_indices.append(idx)
+            except (ValueError, IndexError):
+                pass
+        
+        if cached_list and selected_indices:
+            # Combine selected masks
+            combined_masks = np.zeros_like(cached_list[0]["masks"])
+            for idx in selected_indices:
+                m = cached_list[idx]["masks"]
+                combined_masks = np.where(m > 0, m, combined_masks)
+            
+            if show_image:
+                overlay = masks_to_overlay(combined_masks, img_array, alpha=0.5)
+            else:
+                overlay = masks_to_overlay(combined_masks, None, alpha=1.0)
+            
+            if isinstance(overlay, Image.Image):
+                overlay = overlay.convert("RGB")
+            return overlay, roi_paths if roi_paths else None
+        
+        # No masks selected or no cache
+        if show_image:
+            return array_to_preview(img_array), roi_paths if roi_paths else None
+        else:
+            return None, roi_paths if roi_paths else None
 
     # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
         outputs=[image_display, download_roi_file],
     )
     channel_combination.submit(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
         outputs=[image_display, download_roi_file],
     )
 
     # Restore cached mask overlay or show channel preview when switching images
     selected_index.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        outputs=[image_display, download_roi_file],
+    )
+
+    # Update display when layer checkboxes change
+    show_image_layer.change(
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        outputs=[image_display, download_roi_file],
+    )
+    mask_checkboxes.change(
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
         outputs=[image_display, download_roi_file],
     )
 
     # Run segmentation and generate ROI download
     # Note: Using gr.File with direct path return instead of gr.DownloadButton
     # because gr.update() with DownloadButton didn't trigger downloads properly
-    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache):
-        result, masks = run_segmentation(files, index, channel_sel, channel_comb)
-        if masks is not None and files and index is not None:
-            # Cache masks and ROI path by filename
-            filename = os.path.basename(files[index].name)
-            roi_path = download_rois(masks, files, index)
-            cache[filename] = {"masks": masks, "roi_path": roi_path}
-            if roi_path:
-                return result, cache, roi_path
-        return result, cache, None
+    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks):
+        if not files or index is None:
+            return None, cache, None, gr.update(), gr.update()
+        
+        filename = os.path.basename(files[index].name)
+        cached_list = cache.get(filename, [])
+        
+        # Check if max masks reached
+        if len(cached_list) >= MAX_MASKS:
+            # Return current state without adding new mask
+            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks)
+            return display, cache, roi, gr.update(), gr.update(interactive=False)
+        
+        _, masks = run_segmentation(files, index, channel_sel, channel_comb)
+        if masks is not None:
+            # Determine mask number (1-based)
+            mask_number = len(cached_list) + 1
+            
+            # Cache masks and ROI path by filename (append to list)
+            roi_path = download_rois(masks, files, index, mask_number)
+            if filename not in cache:
+                cache[filename] = []
+            cache[filename].append({"masks": masks, "roi_path": roi_path})
+            
+            # Collect all ROI paths
+            all_roi_paths = [item["roi_path"] for item in cache[filename] if item.get("roi_path")]
+            
+            # Update checkbox choices and select all
+            num_masks = len(cache[filename])
+            choices = [f"Mask {i+1}" for i in range(num_masks)]
+            
+            # Get display with new mask selected
+            display, _ = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices)
+            
+            # Disable button if max reached
+            btn_interactive = num_masks < MAX_MASKS
+            
+            return display, cache, all_roi_paths, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
+        
+        return None, cache, None, gr.update(), gr.update()
     
     run_cellpose_btn.click(
         run_and_cache_masks,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache],
-        outputs=[image_display, masks_cache, download_roi_file],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        outputs=[image_display, masks_cache, download_roi_file, mask_checkboxes, run_cellpose_btn],
+    )
+
+    # Update mask checkboxes when switching images
+    def update_mask_checkboxes(files, index, cache):
+        """Update mask checkbox choices based on cached masks for current image."""
+        if not files or index is None:
+            return gr.update(choices=[], value=[]), gr.update(interactive=True)
+        
+        filename = os.path.basename(files[index].name)
+        cached_list = cache.get(filename, [])
+        num_masks = len(cached_list)
+        choices = [f"Mask {i+1}" for i in range(num_masks)]
+        
+        return gr.update(choices=choices, value=choices), gr.update(interactive=num_masks < MAX_MASKS)
+    
+    selected_index.change(
+        update_mask_checkboxes,
+        inputs=[file_uploader, selected_index, masks_cache],
+        outputs=[mask_checkboxes, run_cellpose_btn],
     )
 
     # Update metadata

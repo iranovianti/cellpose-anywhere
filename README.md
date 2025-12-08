@@ -43,8 +43,8 @@ See `requirements.txt`
   - Show warning when RGB Stack mode is used with >3 channels (or >4 for RGBA), suggesting Channel Grayscale mode instead
 - [x] ~~Combine `selected_image` and `segmentation_result` into a single unified display~~
 - [ ] Add mask overlay options: show/hide toggle + mask vs border/outlines mode
-- [ ] Multi-mask per image support (different channels or parameters)
-- [ ] Add layers checkboxes for toggling visibility of channels and masks
+- [x] ~~Multi-mask per image support (different channels or parameters)~~ (up to 4 masks per image)
+- [x] ~~Add layers checkboxes for toggling visibility of channels and masks~~
 
 ## Credits
 
