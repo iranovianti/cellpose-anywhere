@@ -11,6 +11,7 @@ short_description: Cellpose segmentation GUI with multi-channel support
 
 # Cellpose Anywhere
 
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?logo=github)](https://github.com/iranovianti/cellpose-anywhere)
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/iranovianti/cellpose-anywhere)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/gist/iranovianti/f8f032b3476f7ec6291b245cef6170ed/cellpose_anywhere.ipynb)
 
