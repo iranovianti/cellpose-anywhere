@@ -339,6 +339,10 @@ with gr.Blocks() as demo:
         if img_array is None:
             return None, None
         
+        # Disable mask overlay for "All (Grayscale)" mode (shape mismatch)
+        if channel_sel == "All (Grayscale)":
+            return array_to_preview(img_array), roi_paths if roi_paths else None
+        
         # Get selected mask indices (e.g., ["Mask 1", "Mask 3"] -> [0, 2])
         selected_indices = []
         for m in selected_masks:
