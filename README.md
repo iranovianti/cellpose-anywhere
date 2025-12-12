@@ -17,6 +17,13 @@ short_description: Cellpose segmentation GUI with multi-channel support
 
 A portable Gradio-based GUI for running [Cellpose](#credits) segmentation.
 
+## Requirements
+
+**Python 3.10 - 3.12** (recommended: 3.11.9)
+
+- Python 3.9 and below: Incompatible with Gradio 6.x
+- Python 3.13+: May lack prebuilt wheels for scientific packages
+
 ## Quick Start
 
 ```bash

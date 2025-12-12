@@ -1,13 +1,10 @@
+# Python 3.10 - 3.12 required (recommended: 3.11.9)
+# Python 3.9 and below: Incompatible with Gradio 6.x
+
 gradio
 pillow
 numpy
 tifffile
 cellpose
 matplotlib
-opencv-python
-
-# If you encounter ASGI/pydantic errors on Windows, use these pinned versions:
-# gradio==4.36.0
-# gradio_client==1.0.1
-# pydantic==2.7.4
-# huggingface_hub==0.34.3
+opencv-python-headless

@@ -254,7 +254,7 @@ with gr.Blocks() as demo:
 
     with gr.Row():
         # Left column: File upload
-        with gr.Column(scale=1):
+        with gr.Column(scale=1, min_width=200):
             file_uploader = gr.File(
                 label="Upload Images",
                 file_types=["image"],
@@ -262,9 +262,9 @@ with gr.Blocks() as demo:
             )
 
         # Right column: Image display and segmentation
-        with gr.Column(scale=2):
+        with gr.Column(scale=3):
             file_selector = gr.Dropdown(
-                label="Select File",
+                label="Select an image",
                 choices=[],
                 interactive=True,
             )
@@ -583,4 +583,4 @@ with gr.Blocks() as demo:
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
