@@ -36,7 +36,7 @@ See `requirements.txt`
 
 ## TODO
 
-- [ ] Make `SEGMENTATION_SIZE` configurable (currently hardcoded to 128×128 for faster processing, but incompatible with DIC images)
+- [x] ~~Make `SEGMENTATION_SIZE` configurable~~ (slider 64-1024, default 512)
 - [x] ~~Add download button for ImageJ ROI files~~ (implemented with `gr.File` - works well enough)
 - [x] ~~Improve channel display:~~
   - ~~Label each channel when display mode is Grayscale~~

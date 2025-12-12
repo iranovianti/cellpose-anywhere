@@ -193,7 +193,7 @@ def create_placeholder_image(text, width=400, height=300):
 # Segmentation
 # =============================================================================
 
-def _run_segmentation_impl(files, index, channel_selection, channel_combination):
+def _run_segmentation_impl(files, index, channel_selection, channel_combination, seg_size):
     """Run Cellpose segmentation on the selected image/channels."""
     if not files or index is None:
         return None, None
@@ -205,7 +205,7 @@ def _run_segmentation_impl(files, index, channel_selection, channel_combination)
         if img_array is None:
             return None, None
 
-        masks = run_cellpose_segmentation(img_array)
+        masks = run_cellpose_segmentation(img_array, segmentation_size=seg_size)
         overlay = masks_to_overlay(masks, img_array, alpha=0.5)
 
         # Ensure overlay is RGB for Gradio compatibility
@@ -296,6 +296,14 @@ with gr.Blocks() as demo:
 
                 # Right: Segmentation controls and download
                 with gr.Column(scale=1):
+                    seg_size_slider = gr.Slider(
+                        label="Segmentation Size",
+                        minimum=64,
+                        maximum=1024,
+                        step=64,
+                        value=512,
+                        info="Larger = slower but better masks",
+                    )
                     run_cellpose_btn = gr.Button(
                         "Run Cellpose",
                         variant="primary",
@@ -500,7 +508,7 @@ with gr.Blocks() as demo:
     # Run segmentation and generate ROI download
     # Note: Using gr.File with direct path return instead of gr.DownloadButton
     # because gr.update() with DownloadButton didn't trigger downloads properly
-    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
+    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode, seg_size):
         if not files or index is None:
             return None, cache, None, gr.update(), gr.update()
         
@@ -513,7 +521,7 @@ with gr.Blocks() as demo:
             display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode)
             return display, cache, roi, gr.update(), gr.update(interactive=False)
         
-        _, masks = run_segmentation(files, index, channel_sel, channel_comb)
+        _, masks = run_segmentation(files, index, channel_sel, channel_comb, seg_size)
         if masks is not None:
             # Determine mask number (1-based)
             mask_number = len(cached_list) + 1
@@ -543,7 +551,7 @@ with gr.Blocks() as demo:
     
     run_cellpose_btn.click(
         run_and_cache_masks,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode, seg_size_slider],
         outputs=[image_display, masks_cache, download_roi_file, mask_checkboxes, run_cellpose_btn],
     )
 

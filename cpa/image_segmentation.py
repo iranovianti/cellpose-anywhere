@@ -9,7 +9,6 @@ import cv2
 from .image_processing import resize_array
 
 _cached_model = None
-SEGMENTATION_SIZE = (128, 128)  # smaller size for faster processing
 
 
 def get_cellpose_model(gpu=True):
@@ -20,7 +19,7 @@ def get_cellpose_model(gpu=True):
     return _cached_model
 
 
-def run_cellpose_segmentation(image_array):
+def run_cellpose_segmentation(image_array, segmentation_size=512):
     """Run Cellpose segmentation on an image.
     
     Resizes input for faster processing, then resizes
@@ -28,6 +27,7 @@ def run_cellpose_segmentation(image_array):
     
     Args:
         image_array: numpy array of image (H, W) or (H, W, C)
+        segmentation_size: size to resize image to for segmentation (default 512)
     
     Returns:
         masks: labeled mask array (original size, int32)
@@ -35,7 +35,7 @@ def run_cellpose_segmentation(image_array):
     orig_h, orig_w = image_array.shape[:2]
     orig_size = (orig_w, orig_h)
     
-    resized = resize_array(image_array, target_size=SEGMENTATION_SIZE)
+    resized = resize_array(image_array, target_size=(segmentation_size, segmentation_size))
     
     model = get_cellpose_model(gpu=True)
     masks, _, _ = model.eval(resized)
