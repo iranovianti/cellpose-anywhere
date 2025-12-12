@@ -17,6 +17,7 @@ def read_image_array(file):
     """Read a file into a numpy array.
 
     Supports TIFF via tifffile when available, and other formats via Pillow.
+    Auto-detects and transposes (C, H, W) format to (H, W, C) when C ≤ 5.
 
     Args:
         file: File object with a `name` attribute (e.g., from gr.File)
@@ -39,6 +40,12 @@ def read_image_array(file):
         arr = np.array(pil)
 
     arr = np.squeeze(arr)
+    
+    # Auto-detect and transpose (C, H, W) → (H, W, C)
+    # Assume channels-first if first dimension is ≤ 5 and smaller than spatial dims
+    if arr.ndim == 3 and arr.shape[0] <= 5 and arr.shape[0] < min(arr.shape[1], arr.shape[2]):
+        arr = np.transpose(arr, (1, 2, 0))
+    
     return arr
 
 
