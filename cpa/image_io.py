@@ -61,17 +61,18 @@ def save_masks_as_rois(masks, filename_base, mask_number=1):
         Absolute path to the saved ROI zip file
     """
     from cellpose import io as cellpose_io
-    import glob
+    import re
+    
+    # Sanitize filename: keep only alphanumeric, underscores, and hyphens
+    safe_filename = re.sub(r'[^\w\-]', '_', filename_base)
     
     # cellpose_io.save_rois creates a file with _rois.zip suffix
-    output_path_base = f"{filename_base}_MASK{mask_number}"
+    output_path_base = f"{safe_filename}_MASK{mask_number}"
     cellpose_io.save_rois(masks, output_path_base)
     
-    # Find the actual created file
-    zip_files = glob.glob(f"{output_path_base}*.zip")
-    if zip_files:
-        # Return absolute path
-        abs_path = os.path.abspath(zip_files[0])
-        return abs_path
+    # Construct the expected output path directly (cellpose adds _rois.zip)
+    expected_path = f"{output_path_base}_rois.zip"
+    if os.path.exists(expected_path):
+        return os.path.abspath(expected_path)
     
     return None
