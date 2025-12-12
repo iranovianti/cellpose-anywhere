@@ -18,7 +18,7 @@ except ImportError:
     SPACES_AVAILABLE = False
 
 from cpa import read_image_array, normalize_to_uint8, array_to_display_pil, save_masks_as_rois
-from cpa.image_segmentation import run_cellpose_segmentation, masks_to_overlay
+from cpa.image_segmentation import run_cellpose_segmentation, masks_to_overlay, draw_multi_mask_outlines
 
 
 # =============================================================================
@@ -316,6 +316,12 @@ with gr.Blocks() as demo:
                         value=[],
                         interactive=True,
                     )
+                    mask_display_mode = gr.Radio(
+                        label="Mask Style",
+                        choices=["Fill", "Outline"],
+                        value="Fill",
+                        interactive=True,
+                    )
 
             # Metadata
             file_metadata = gr.Dataframe(
@@ -391,7 +397,7 @@ with gr.Blocks() as demo:
     )
 
     # Restore cached mask overlay or show channel preview when switching images
-    def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks):
+    def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
         """Show cached segmentation overlay if available, otherwise show channel preview."""
         if not files or index is None:
             return None, None
@@ -427,16 +433,23 @@ with gr.Blocks() as demo:
                 pass
         
         if cached_list and selected_indices:
-            # Combine selected masks
-            combined_masks = np.zeros_like(cached_list[0]["masks"])
-            for idx in selected_indices:
-                m = cached_list[idx]["masks"]
-                combined_masks = np.where(m > 0, m, combined_masks)
-            
-            if show_image:
-                overlay = masks_to_overlay(combined_masks, img_array, alpha=0.5)
+            # Choose overlay function based on display mode
+            if display_mode == "Outline":
+                # Draw each mask with a different color
+                mask_list = [cached_list[idx]["masks"] for idx in selected_indices]
+                bg_image = img_array if show_image else None
+                overlay = draw_multi_mask_outlines(mask_list, bg_image)
             else:
-                overlay = masks_to_overlay(combined_masks, None, alpha=1.0)
+                # Combine selected masks for fill mode
+                combined_masks = np.zeros_like(cached_list[0]["masks"])
+                for idx in selected_indices:
+                    m = cached_list[idx]["masks"]
+                    combined_masks = np.where(m > 0, m, combined_masks)
+                
+                if show_image:
+                    overlay = masks_to_overlay(combined_masks, img_array, alpha=0.5)
+                else:
+                    overlay = masks_to_overlay(combined_masks, None, alpha=1.0)
             
             if isinstance(overlay, Image.Image):
                 overlay = overlay.convert("RGB")
@@ -451,38 +464,43 @@ with gr.Blocks() as demo:
     # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, download_roi_file],
     )
     channel_combination.submit(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, download_roi_file],
     )
 
     # Restore cached mask overlay or show channel preview when switching images
     selected_index.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, download_roi_file],
     )
 
     # Update display when layer checkboxes change
     show_image_layer.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, download_roi_file],
     )
     mask_checkboxes.change(
         restore_cached_or_preview,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
+        outputs=[image_display, download_roi_file],
+    )
+    mask_display_mode.change(
+        restore_cached_or_preview,
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, download_roi_file],
     )
 
     # Run segmentation and generate ROI download
     # Note: Using gr.File with direct path return instead of gr.DownloadButton
     # because gr.update() with DownloadButton didn't trigger downloads properly
-    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks):
+    def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
         if not files or index is None:
             return None, cache, None, gr.update(), gr.update()
         
@@ -492,7 +510,7 @@ with gr.Blocks() as demo:
         # Check if max masks reached
         if len(cached_list) >= MAX_MASKS:
             # Return current state without adding new mask
-            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks)
+            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode)
             return display, cache, roi, gr.update(), gr.update(interactive=False)
         
         _, masks = run_segmentation(files, index, channel_sel, channel_comb)
@@ -514,7 +532,7 @@ with gr.Blocks() as demo:
             choices = [f"Mask {i+1}" for i in range(num_masks)]
             
             # Get display with new mask selected
-            display, _ = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices)
+            display, _ = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
             
             # Disable button if max reached
             btn_interactive = num_masks < MAX_MASKS
@@ -525,7 +543,7 @@ with gr.Blocks() as demo:
     
     run_cellpose_btn.click(
         run_and_cache_masks,
-        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes],
+        inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
         outputs=[image_display, masks_cache, download_roi_file, mask_checkboxes, run_cellpose_btn],
     )
 

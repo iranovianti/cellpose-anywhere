@@ -42,7 +42,7 @@ See `requirements.txt`
   - ~~Label each channel when display mode is Grayscale~~
   - ~~Show warning when RGB Stack mode is used with >3 channels~~
 - [x] ~~Combine `selected_image` and `segmentation_result` into a single unified display~~
-- [ ] Add mask overlay options: show/hide toggle + mask vs border/outlines mode
+- [x] ~~Add mask overlay options: show/hide toggle + mask vs border/outlines mode~~ (Fill/Outline toggle with multi-color outlines)
 - [x] ~~Multi-mask per image support (different channels or parameters)~~ (up to 4 masks per image)
 - [x] ~~Add layers checkboxes for toggling visibility of channels and masks~~
 
