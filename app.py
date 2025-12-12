@@ -359,7 +359,7 @@ with gr.Blocks() as demo:
             choices = ["Stack", "All (Grayscale)", "Custom"] + [f"Channel {i}" for i in range(c)]
             # Show warning if >3 channels and Stack is selected
             if c > 3:
-                warning = f"Image has {c} channels. Stack mode shows only the first 3."
+                warning = f"⚠️ Image has {c} channels. Stack mode shows only the first 3."
                 return gr.update(choices=choices, value="Stack"), gr.update(value=warning, visible=True)
             return gr.update(choices=choices, value="Stack"), gr.update(value="", visible=False)
         return gr.update(choices=["Stack"], value="Stack"), gr.update(value="", visible=False)
