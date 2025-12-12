@@ -382,16 +382,23 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         outputs=file_uploader,
     )
 
-    # File upload → update dropdown and hide examples
+    # File upload → update dropdown, select last file, and hide examples
     def on_files_upload(files):
         if files:
-            return gr.update(choices=get_filenames(files)), gr.update(visible=False)
-        return gr.update(choices=[]), gr.update(visible=True)
+            filenames = get_filenames(files)
+            last_file = filenames[-1]
+            last_index = len(filenames) - 1
+            return (
+                gr.update(choices=filenames, value=last_file),
+                gr.update(visible=False),
+                last_index,
+            )
+        return gr.update(choices=[], value=None), gr.update(visible=True), None
     
     file_uploader.change(
         on_files_upload,
         inputs=file_uploader,
-        outputs=[file_selector, examples_container],
+        outputs=[file_selector, examples_container, selected_index],
     )
 
     # File selection → update index
