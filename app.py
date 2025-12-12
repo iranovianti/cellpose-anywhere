@@ -252,6 +252,22 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     masks_cache = gr.State({})  # Dict mapping filename -> list of {"masks": array, "roi_path": path}
     MAX_MASKS = 4
 
+    # Prepare example images for gallery display
+    EXAMPLE_PATHS = ["examples/sample1.tif", "examples/sample2.png", "examples/sample3.png"]
+    
+    def load_example_thumbnails():
+        """Load and convert example images to displayable format."""
+        thumbnails = []
+        for path in EXAMPLE_PATHS:
+            if os.path.exists(path):
+                try:
+                    arr = read_image_array(type('File', (), {'name': path})())
+                    pil = array_to_display_pil(arr)
+                    thumbnails.append((pil, os.path.basename(path)))
+                except:
+                    pass
+        return thumbnails
+    
     with gr.Row():
         # Left column: File upload
         with gr.Column(scale=1, min_width=200):
@@ -260,6 +276,17 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
                 file_types=["image"],
                 file_count="multiple",
             )
+            with gr.Column(visible=True) as examples_container:
+                gr.Markdown("**Or try an example:**")
+                example_gallery = gr.Gallery(
+                    value=load_example_thumbnails(),
+                    columns=3,
+                    rows=1,
+                    height=200,
+                    object_fit="cover",
+                    allow_preview=False,
+                    show_label=False,
+                )
 
         # Right column: Image display and segmentation
         with gr.Column(scale=3):
@@ -343,11 +370,28 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     # Event Handlers
     # =========================================================================
 
-    # File upload → update dropdown
+    # Example gallery click → load to file uploader
+    def on_example_select(evt: gr.SelectData):
+        # Use the index to get the original path
+        if evt.index is not None and evt.index < len(EXAMPLE_PATHS):
+            return [EXAMPLE_PATHS[evt.index]]
+        return None
+    
+    example_gallery.select(
+        on_example_select,
+        outputs=file_uploader,
+    )
+
+    # File upload → update dropdown and hide examples
+    def on_files_upload(files):
+        if files:
+            return gr.update(choices=get_filenames(files)), gr.update(visible=False)
+        return gr.update(choices=[]), gr.update(visible=True)
+    
     file_uploader.change(
-        lambda files: gr.update(choices=get_filenames(files)),
+        on_files_upload,
         inputs=file_uploader,
-        outputs=file_selector,
+        outputs=[file_selector, examples_container],
     )
 
     # File selection → update index
