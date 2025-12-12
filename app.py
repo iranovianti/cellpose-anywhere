@@ -244,7 +244,7 @@ def download_rois(masks, files, index, mask_number=1):
 # Gradio UI
 # =============================================================================
 
-with gr.Blocks() as demo:
+with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple")) as demo:
     gr.Markdown("## Cellpose Anywhere")
 
     # State
@@ -583,4 +583,4 @@ with gr.Blocks() as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
+    demo.launch()

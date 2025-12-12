@@ -1,7 +1,7 @@
 # Python 3.10 - 3.12 required (recommended: 3.11.9)
 # Python 3.9 and below: Incompatible with Gradio 6.x
 
-gradio
+gradio>=6.0
 pillow
 numpy
 tifffile
