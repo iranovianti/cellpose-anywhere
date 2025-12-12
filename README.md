@@ -17,6 +17,11 @@ short_description: Cellpose segmentation GUI with multi-channel support
 
 A portable Gradio-based GUI for running [Cellpose](#credits) segmentation.
 
+## Features
+
+- **Multi-channel image support**: Supports multi-channel images. Select one or more channels to segment, and get a separate mask for each.
+- **ImageJ ROI export**: Download segmentation results as ImageJ-compatible ROI zip files
+
 ## Requirements
 
 **Python 3.10 - 3.12** (recommended: 3.11.9)
