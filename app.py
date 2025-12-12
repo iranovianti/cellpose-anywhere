@@ -8,7 +8,7 @@ import os
 
 import gradio as gr
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 # Conditional import for HuggingFace Spaces ZeroGPU
 try:
@@ -89,15 +89,44 @@ def parse_channel_selection(arr, channel_selection, channel_combination):
     h, w, c = arr.shape
 
     if channel_selection == "All (Grayscale)":
-        # Create side-by-side grayscale composite
+        # Create side-by-side grayscale composite with channel labels
         arr8 = normalize_to_uint8(arr)
-        comp = np.zeros((h, w * c), dtype=np.uint8)
+        
+        # Add padding at top for labels
+        label_height = 35
+        comp = np.zeros((h + label_height, w * c), dtype=np.uint8)
+        
+        # Place each channel side-by-side
         for i in range(c):
-            comp[:, i * w:(i + 1) * w] = arr8[:, :, i]
-        return comp
+            comp[label_height:, i * w:(i + 1) * w] = arr8[:, :, i]
+        
+        # Convert to PIL to add text labels
+        comp_pil = Image.fromarray(comp)
+        draw = ImageDraw.Draw(comp_pil)
+        
+        try:
+            font = ImageFont.truetype("arial.ttf", 22)
+        except:
+            font = ImageFont.load_default()
+        
+        # Add channel labels centered above each channel (dark bg strip already from zeros)
+        for i in range(c):
+            label = f"Channel {i}"
+            bbox = draw.textbbox((0, 0), label, font=font)
+            text_width = bbox[2] - bbox[0]
+            x_pos = i * w + (w - text_width) // 2
+            draw.text((x_pos, 6), label, fill=255, font=font)
+        
+        return np.array(comp_pil)
 
     if channel_selection == "Stack":
-        return arr
+        if c == 2:
+            return np.concatenate([arr, np.zeros((h, w, 1), dtype=arr.dtype)], axis=-1)
+        elif c > 3:
+            # Limit to first 3 channels to avoid PIL treating 4th as alpha
+            return arr[:, :, :3]
+        else:
+            return arr
 
     if channel_selection == "Custom":
         if not channel_combination or not channel_combination.strip():
@@ -137,6 +166,27 @@ def array_to_preview(arr):
         arr8 = normalize_to_uint8(arr)
         return Image.fromarray(arr8).convert("L")
     return array_to_display_pil(arr)
+
+
+def create_placeholder_image(text, width=400, height=300):
+    """Create a placeholder image with centered text."""
+    img = Image.new("RGB", (width, height), color=(50, 50, 50))
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font = ImageFont.load_default()
+    
+    # Center the text
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = (width - text_width) // 2
+    y = (height - text_height) // 2
+    
+    draw.text((x, y), text, fill=(180, 180, 180), font=font)
+    return img
 
 
 # =============================================================================
@@ -236,6 +286,7 @@ with gr.Blocks() as demo:
                             interactive=False,
                             scale=1,
                         )
+                    channel_warning = gr.Markdown("", visible=False)
 
                     image_display = gr.Image(
                         label="Image",
@@ -298,28 +349,45 @@ with gr.Blocks() as demo:
         outputs=selected_index,
     )
 
-    # Index change → update channel choices
+    # Index change → update channel choices and warning
     def update_channel_choices(files, index):
         if not files or index is None:
-            return gr.update(choices=["Stack"], value="Stack")
+            return gr.update(choices=["Stack"], value="Stack"), gr.update(value="", visible=False)
         arr = read_image_array(files[index])
         if arr.ndim == 3:
             _, _, c = arr.shape
             choices = ["Stack", "All (Grayscale)", "Custom"] + [f"Channel {i}" for i in range(c)]
-            return gr.update(choices=choices, value="Stack")
-        return gr.update(choices=["Stack"], value="Stack")
+            # Show warning if >3 channels and Stack is selected
+            if c > 3:
+                warning = f"Image has {c} channels. Stack mode shows only the first 3."
+                return gr.update(choices=choices, value="Stack"), gr.update(value=warning, visible=True)
+            return gr.update(choices=choices, value="Stack"), gr.update(value="", visible=False)
+        return gr.update(choices=["Stack"], value="Stack"), gr.update(value="", visible=False)
 
     selected_index.change(
         update_channel_choices,
         inputs=[file_uploader, selected_index],
-        outputs=channel_selector,
+        outputs=[channel_selector, channel_warning],
     )
 
-    # Channel selector → toggle custom textbox
+    # Channel selector → toggle custom textbox and update warning
+    def update_channel_options(files, index, sel):
+        custom_interactive = gr.update(interactive=(sel == "Custom"))
+        # Check if warning should be shown
+        if not files or index is None:
+            return custom_interactive, gr.update(value="", visible=False)
+        arr = read_image_array(files[index])
+        if arr.ndim == 3:
+            _, _, c = arr.shape
+            if c > 3 and sel == "Stack":
+                warning = f"⚠️ Image has {c} channels. Stack mode shows only the first 3."
+                return custom_interactive, gr.update(value=warning, visible=True)
+        return custom_interactive, gr.update(value="", visible=False)
+    
     channel_selector.change(
-        lambda sel: gr.update(interactive=(sel == "Custom")),
-        inputs=channel_selector,
-        outputs=channel_combination,
+        update_channel_options,
+        inputs=[file_uploader, selected_index, channel_selector],
+        outputs=[channel_combination, channel_warning],
     )
 
     # Restore cached mask overlay or show channel preview when switching images
@@ -336,7 +404,12 @@ with gr.Blocks() as demo:
         
         arr = read_image_array(files[index])
         img_array = parse_channel_selection(arr, channel_sel, channel_comb)
+        
+        # Show placeholder if Custom mode with no channels specified
         if img_array is None:
+            if channel_sel == "Custom":
+                placeholder = create_placeholder_image("Enter channel numbers (e.g., 0, 1, 2)")
+                return placeholder, roi_paths if roi_paths else None
             return None, None
         
         # Disable mask overlay for "All (Grayscale)" mode (shape mismatch)

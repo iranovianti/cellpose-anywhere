@@ -38,9 +38,9 @@ See `requirements.txt`
 
 - [ ] Make `SEGMENTATION_SIZE` configurable (currently hardcoded to 128×128 for faster processing, but incompatible with DIC images)
 - [x] ~~Add download button for ImageJ ROI files~~ (implemented with `gr.File` - works well enough)
-- [ ] Improve channel display:
-  - Label each channel when display mode is Grayscale
-  - Show warning when RGB Stack mode is used with >3 channels (or >4 for RGBA), suggesting Channel Grayscale mode instead
+- [x] ~~Improve channel display:~~
+  - ~~Label each channel when display mode is Grayscale~~
+  - ~~Show warning when RGB Stack mode is used with >3 channels~~
 - [x] ~~Combine `selected_image` and `segmentation_result` into a single unified display~~
 - [ ] Add mask overlay options: show/hide toggle + mask vs border/outlines mode
 - [x] ~~Multi-mask per image support (different channels or parameters)~~ (up to 4 masks per image)
