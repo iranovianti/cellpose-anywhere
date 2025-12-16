@@ -17,8 +17,8 @@ try:
 except ImportError:
     SPACES_AVAILABLE = False
 
-from cpa import read_image_array, normalize_to_uint8, array_to_display_pil, save_masks_as_rois
-from cpa.image_segmentation import run_cellpose_segmentation, masks_to_overlay, draw_multi_mask_outlines
+from cpa import read_image_array, read_image_stack, normalize_to_uint8, array_to_display_pil, save_masks_as_rois
+from cpa.image_segmentation import run_cellpose_segmentation, run_cellpose_segmentation_batch, masks_to_overlay, draw_multi_mask_outlines
 
 
 # =============================================================================
@@ -41,7 +41,9 @@ def get_file_metadata(files, index):
     filename = os.path.basename(f.name)
 
     try:
-        arr = read_image_array(f)
+        frames = read_image_stack(f)
+        num_frames = len(frames)
+        arr = frames[0]  # Use first frame for dimensions
 
         if arr.ndim == 2:
             height, width = arr.shape
@@ -57,7 +59,7 @@ def get_file_metadata(files, index):
 
         ext = os.path.splitext(f.name)[1].lower()
 
-        return [
+        metadata = [
             ["Filename", filename],
             ["Format", ext],
             ["Dimensions", f"{width} × {height}"],
@@ -65,6 +67,12 @@ def get_file_metadata(files, index):
             ["Data Type", str(arr.dtype)],
             ["File Size", size_str],
         ]
+        
+        # Add frame count if it's a stack
+        if num_frames > 1:
+            metadata.insert(3, ["Frames", str(num_frames)])
+        
+        return metadata
     except Exception as e:
         return [["Error", str(e)]]
 
@@ -168,6 +176,20 @@ def array_to_preview(arr):
     return array_to_display_pil(arr)
 
 
+def parse_channel_selection_batch(frames, channel_selection, channel_combination):
+    """Apply channel selection to a list of frames.
+    
+    Args:
+        frames: list of numpy arrays (H, W) or (H, W, C)
+        channel_selection: channel selection mode
+        channel_combination: custom channel string (for Custom mode)
+    
+    Returns:
+        list of processed numpy arrays
+    """
+    return [parse_channel_selection(f, channel_selection, channel_combination) for f in frames]
+
+
 def create_placeholder_image(text, width=400, height=300):
     """Create a placeholder image with centered text."""
     img = Image.new("RGB", (width, height), color=(50, 50, 50))
@@ -194,25 +216,38 @@ def create_placeholder_image(text, width=400, height=300):
 # =============================================================================
 
 def _run_segmentation_impl(files, index, channel_selection, channel_combination, seg_size):
-    """Run Cellpose segmentation on the selected image/channels."""
+    """Run Cellpose segmentation on the selected image/channels.
+    
+    For single images, returns (overlay, masks).
+    For stacks, returns (list of overlays, list of masks).
+    """
     if not files or index is None:
         return None, None
 
     try:
-        arr = read_image_array(files[index])
-        img_array = parse_channel_selection(arr, channel_selection, channel_combination)
-
-        if img_array is None:
+        frames = read_image_stack(files[index])
+        processed_frames = parse_channel_selection_batch(frames, channel_selection, channel_combination)
+        
+        # Filter out None values (invalid channel selection)
+        if any(f is None for f in processed_frames):
             return None, None
 
-        masks = run_cellpose_segmentation(img_array, segmentation_size=seg_size)
-        overlay = masks_to_overlay(masks, img_array, alpha=0.5)
+        # Run segmentation on all frames
+        masks_list = run_cellpose_segmentation_batch(processed_frames, segmentation_size=seg_size)
+        
+        # Generate overlays for each frame
+        overlays = []
+        for img_array, masks in zip(processed_frames, masks_list):
+            overlay = masks_to_overlay(masks, img_array, alpha=0.5)
+            if isinstance(overlay, Image.Image):
+                overlay = overlay.convert("RGB")
+            overlays.append(overlay)
 
-        # Ensure overlay is RGB for Gradio compatibility
-        if isinstance(overlay, Image.Image):
-            overlay = overlay.convert("RGB")
-
-        return overlay, masks
+        # Return single items for single-frame images (backward compatibility)
+        if len(frames) == 1:
+            return overlays[0], masks_list[0]
+        
+        return overlays, masks_list
 
     except Exception as e:
         print(f"Error in run_segmentation: {e}")
@@ -261,8 +296,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         for path in EXAMPLE_PATHS:
             if os.path.exists(path):
                 try:
-                    arr = read_image_array(type('File', (), {'name': path})())
-                    pil = array_to_display_pil(arr)
+                    frames = read_image_stack(type('File', (), {'name': path})())
+                    pil = array_to_display_pil(frames[0])
                     thumbnails.append((pil, os.path.basename(path)))
                 except:
                     pass
@@ -315,10 +350,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
                         )
                     channel_warning = gr.Markdown("", visible=False)
 
-                    image_display = gr.Image(
+                    image_display = gr.Gallery(
                         label="Image",
-                        interactive=False,
+                        columns=1,
+                        rows=None,
                         height=400,
+                        object_fit="contain",
+                        allow_preview=True,
+                        show_label=True,
                     )
 
                 # Right: Segmentation controls and download
@@ -418,7 +457,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     def update_channel_choices(files, index):
         if not files or index is None:
             return gr.update(choices=["Stack"], value="Stack"), gr.update(value="", visible=False)
-        arr = read_image_array(files[index])
+        frames = read_image_stack(files[index])
+        arr = frames[0]  # Use first frame for channel info
         if arr.ndim == 3:
             _, _, c = arr.shape
             choices = ["Stack", "All (Grayscale)", "Custom"] + [f"Channel {i}" for i in range(c)]
@@ -441,7 +481,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         # Check if warning should be shown
         if not files or index is None:
             return custom_interactive, gr.update(value="", visible=False)
-        arr = read_image_array(files[index])
+        frames = read_image_stack(files[index])
+        arr = frames[0]  # Use first frame for channel info
         if arr.ndim == 3:
             _, _, c = arr.shape
             if c > 3 and sel == "Stack":
@@ -457,7 +498,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
 
     # Restore cached mask overlay or show channel preview when switching images
     def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
-        """Show cached segmentation overlay if available, otherwise show channel preview."""
+        """Show cached segmentation overlay if available, otherwise show channel preview.
+        
+        Returns a list of (image, label) tuples for Gallery display.
+        """
         if not files or index is None:
             return None, None
         
@@ -467,19 +511,24 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         # Collect ROI paths from all masks
         roi_paths = [item["roi_path"] for item in cached_list if item.get("roi_path")]
         
-        arr = read_image_array(files[index])
-        img_array = parse_channel_selection(arr, channel_sel, channel_comb)
+        frames = read_image_stack(files[index])
+        processed_frames = parse_channel_selection_batch(frames, channel_sel, channel_comb)
         
         # Show placeholder if Custom mode with no channels specified
-        if img_array is None:
+        if any(f is None for f in processed_frames):
             if channel_sel == "Custom":
                 placeholder = create_placeholder_image("Enter channel numbers (e.g., 0, 1, 2)")
-                return placeholder, roi_paths if roi_paths else None
+                return [(placeholder, "Placeholder")], roi_paths if roi_paths else None
             return None, None
         
         # Disable mask overlay for "All (Grayscale)" mode (shape mismatch)
         if channel_sel == "All (Grayscale)":
-            return array_to_preview(img_array), roi_paths if roi_paths else None
+            gallery_items = []
+            for i, img_array in enumerate(processed_frames):
+                preview = array_to_preview(img_array)
+                label = f"Frame {i+1}" if len(processed_frames) > 1 else None
+                gallery_items.append((preview, label))
+            return gallery_items, roi_paths if roi_paths else None
         
         # Get selected mask indices (e.g., ["Mask 1", "Mask 3"] -> [0, 2])
         selected_indices = []
@@ -491,34 +540,63 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
             except (ValueError, IndexError):
                 pass
         
-        if cached_list and selected_indices:
-            # Choose overlay function based on display mode
-            if display_mode == "Outline":
-                # Draw each mask with a different color
-                mask_list = [cached_list[idx]["masks"] for idx in selected_indices]
-                bg_image = img_array if show_image else None
-                overlay = draw_multi_mask_outlines(mask_list, bg_image)
-            else:
-                # Combine selected masks for fill mode
-                combined_masks = np.zeros_like(cached_list[0]["masks"])
-                for idx in selected_indices:
-                    m = cached_list[idx]["masks"]
-                    combined_masks = np.where(m > 0, m, combined_masks)
-                
-                if show_image:
-                    overlay = masks_to_overlay(combined_masks, img_array, alpha=0.5)
-                else:
-                    overlay = masks_to_overlay(combined_masks, None, alpha=1.0)
-            
-            if isinstance(overlay, Image.Image):
-                overlay = overlay.convert("RGB")
-            return overlay, roi_paths if roi_paths else None
+        gallery_items = []
+        num_frames = len(processed_frames)
         
-        # No masks selected or no cache
-        if show_image:
-            return array_to_preview(img_array), roi_paths if roi_paths else None
-        else:
-            return None, roi_paths if roi_paths else None
+        for frame_idx, img_array in enumerate(processed_frames):
+            label = f"Frame {frame_idx+1}" if num_frames > 1 else None
+            
+            if cached_list and selected_indices:
+                # Get masks for this frame
+                if display_mode == "Outline":
+                    mask_list = []
+                    for idx in selected_indices:
+                        masks_data = cached_list[idx]["masks"]
+                        # Handle both single masks and lists of masks (for stacks)
+                        if isinstance(masks_data, list):
+                            if frame_idx < len(masks_data):
+                                mask_list.append(masks_data[frame_idx])
+                        else:
+                            mask_list.append(masks_data)
+                    bg_image = img_array if show_image else None
+                    overlay = draw_multi_mask_outlines(mask_list, bg_image)
+                else:
+                    # Combine selected masks for fill mode
+                    first_masks = cached_list[0]["masks"]
+                    if isinstance(first_masks, list):
+                        if frame_idx < len(first_masks):
+                            combined_masks = np.zeros_like(first_masks[frame_idx])
+                        else:
+                            combined_masks = np.zeros(img_array.shape[:2], dtype=np.int32)
+                    else:
+                        combined_masks = np.zeros_like(first_masks)
+                    
+                    for idx in selected_indices:
+                        masks_data = cached_list[idx]["masks"]
+                        if isinstance(masks_data, list):
+                            if frame_idx < len(masks_data):
+                                m = masks_data[frame_idx]
+                                combined_masks = np.where(m > 0, m, combined_masks)
+                        else:
+                            combined_masks = np.where(masks_data > 0, masks_data, combined_masks)
+                    
+                    if show_image:
+                        overlay = masks_to_overlay(combined_masks, img_array, alpha=0.5)
+                    else:
+                        overlay = masks_to_overlay(combined_masks, None, alpha=1.0)
+                
+                if isinstance(overlay, Image.Image):
+                    overlay = overlay.convert("RGB")
+                gallery_items.append((overlay, label))
+            else:
+                # No masks selected or no cache
+                if show_image:
+                    preview = array_to_preview(img_array)
+                    gallery_items.append((preview, label))
+                else:
+                    gallery_items.append((None, label))
+        
+        return gallery_items, roi_paths if roi_paths else None
 
     # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
@@ -572,31 +650,28 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
             display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode)
             return display, cache, roi, gr.update(), gr.update(interactive=False)
         
-        _, masks = run_segmentation(files, index, channel_sel, channel_comb, seg_size)
+        overlays, masks = run_segmentation(files, index, channel_sel, channel_comb, seg_size)
         if masks is not None:
             # Determine mask number (1-based)
             mask_number = len(cached_list) + 1
             
-            # Cache masks and ROI path by filename (append to list)
-            roi_path = download_rois(masks, files, index, mask_number)
+            # Cache masks by filename (append to list)
+            # For stacks, masks will be a list; for single images, it's a single array
             if filename not in cache:
                 cache[filename] = []
-            cache[filename].append({"masks": masks, "roi_path": roi_path})
-            
-            # Collect all ROI paths
-            all_roi_paths = [item["roi_path"] for item in cache[filename] if item.get("roi_path")]
+            cache[filename].append({"masks": masks, "roi_path": None})  # ROI export handled later
             
             # Update checkbox choices and select all
             num_masks = len(cache[filename])
             choices = [f"Mask {i+1}" for i in range(num_masks)]
             
             # Get display with new mask selected
-            display, _ = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
+            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
             
             # Disable button if max reached
             btn_interactive = num_masks < MAX_MASKS
             
-            return display, cache, all_roi_paths, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
+            return display, cache, roi, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
         
         return None, cache, None, gr.update(), gr.update()
     

@@ -49,6 +49,80 @@ def read_image_array(file):
     return arr
 
 
+def read_image_stack(file):
+    """Read a file into a list of numpy arrays (one per frame/slice).
+
+    Supports single images and stacks (timelapse, Z-stack).
+    Auto-detects N dimension and returns a list of (H, W) or (H, W, C) arrays.
+
+    Args:
+        file: File object with a `name` attribute (e.g., from gr.File)
+
+    Returns:
+        frames: list of numpy arrays, each of shape (H, W) or (H, W, C)
+        
+    Dimension detection:
+        (H, W)         → single grayscale         → [arr]
+        (H, W, C)      → single multi-channel     → [arr]  (C ≤ 5)
+        (C, H, W)      → single multi-channel     → [arr]  (C ≤ 5, transposed)
+        (N, H, W)      → N grayscale frames       → [frame0, frame1, ...]  (N > 5)
+        (N, C, H, W)   → N multi-channel frames   → [frame0, frame1, ...]  (C ≤ 5)
+        (N, H, W, C)   → N multi-channel frames   → [frame0, frame1, ...]  (C ≤ 5)
+
+    Raises:
+        ValueError: If file has no name attribute or unsupported dimensions
+    """
+    name = getattr(file, "name", None)
+    if name is None:
+        raise ValueError("File object has no name attribute")
+    ext = os.path.splitext(name)[1].lower()
+
+    if ext in (".tif", ".tiff") and _HAS_TIFFFILE:
+        arr = tifffile.imread(name)
+    else:
+        pil = Image.open(name)
+        arr = np.array(pil)
+
+    arr = np.squeeze(arr)
+    ndim = arr.ndim
+
+    # 2D: single grayscale image
+    if ndim == 2:
+        return [arr]
+
+    # 3D: could be (H, W, C), (C, H, W), or (N, H, W)
+    if ndim == 3:
+        d0, d1, d2 = arr.shape
+        
+        # (H, W, C) - channels-last, single image
+        if d2 <= 5 and d2 < min(d0, d1):
+            return [arr]
+        
+        # (C, H, W) - channels-first, single image → transpose
+        if d0 <= 5 and d0 < min(d1, d2):
+            return [np.transpose(arr, (1, 2, 0))]
+        
+        # (N, H, W) - N grayscale frames
+        # N > 5 distinguishes from channels
+        return [arr[i] for i in range(d0)]
+
+    # 4D: (N, C, H, W) or (N, H, W, C)
+    if ndim == 4:
+        d0, d1, d2, d3 = arr.shape
+        
+        # (N, H, W, C) - channels-last
+        if d3 <= 5 and d3 < min(d1, d2):
+            return [arr[i] for i in range(d0)]
+        
+        # (N, C, H, W) - channels-first → transpose each frame
+        if d1 <= 5 and d1 < min(d2, d3):
+            return [np.transpose(arr[i], (1, 2, 0)) for i in range(d0)]
+        
+        raise ValueError(f"Cannot interpret 4D array shape {arr.shape}")
+
+    raise ValueError(f"Unsupported array dimensions: {ndim}D")
+
+
 def save_masks_as_rois(masks, filename_base, mask_number=1):
     """Save segmentation masks as ROI files for download.
     
