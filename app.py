@@ -350,15 +350,25 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
                         )
                     channel_warning = gr.Markdown("", visible=False)
 
-                    image_display = gr.Gallery(
-                        label="Image",
-                        columns=1,
-                        rows=None,
-                        height=400,
-                        object_fit="contain",
-                        allow_preview=True,
-                        show_label=True,
-                    )
+                    with gr.Row():
+                        # Thumbnail strip on the left
+                        with gr.Column(scale=1, min_width=100):
+                            frame_gallery = gr.Gallery(
+                                label="Frames",
+                                columns=1,
+                                height=500,
+                                object_fit="cover",
+                                allow_preview=False,
+                                show_label=True,
+                                interactive=False,
+                            )
+                        # Main image display on the right
+                        with gr.Column(scale=5):
+                            image_display = gr.Image(
+                                label="Image",
+                                height=500,
+                                show_label=True,
+                            )
 
                 # Right: Segmentation controls and download
                 with gr.Column(scale=1):
@@ -500,10 +510,13 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
         """Show cached segmentation overlay if available, otherwise show channel preview.
         
-        Returns a list of (image, label) tuples for Gallery display.
+        Returns:
+            gallery_items: list of (image, label) tuples for thumbnail gallery
+            main_image: PIL Image for main display (first frame)
+            roi_paths: list of ROI file paths
         """
         if not files or index is None:
-            return None, None
+            return None, None, None
         
         filename = os.path.basename(files[index].name)
         cached_list = cache.get(filename, [])
@@ -518,17 +531,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         if any(f is None for f in processed_frames):
             if channel_sel == "Custom":
                 placeholder = create_placeholder_image("Enter channel numbers (e.g., 0, 1, 2)")
-                return [(placeholder, "Placeholder")], roi_paths if roi_paths else None
-            return None, None
-        
-        # Disable mask overlay for "All (Grayscale)" mode (shape mismatch)
-        if channel_sel == "All (Grayscale)":
-            gallery_items = []
-            for i, img_array in enumerate(processed_frames):
-                preview = array_to_preview(img_array)
-                label = f"Frame {i+1}" if len(processed_frames) > 1 else None
-                gallery_items.append((preview, label))
-            return gallery_items, roi_paths if roi_paths else None
+                return [(placeholder, "Placeholder")], placeholder, roi_paths if roi_paths else None
+            return None, None, None
         
         # Get selected mask indices (e.g., ["Mask 1", "Mask 3"] -> [0, 2])
         selected_indices = []
@@ -546,7 +550,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         for frame_idx, img_array in enumerate(processed_frames):
             label = f"Frame {frame_idx+1}" if num_frames > 1 else None
             
-            if cached_list and selected_indices:
+            # Disable mask overlay for "All (Grayscale)" mode (shape mismatch)
+            if channel_sel == "All (Grayscale)":
+                preview = array_to_preview(img_array)
+                gallery_items.append((preview, label))
+            elif cached_list and selected_indices:
                 # Get masks for this frame
                 if display_mode == "Outline":
                     mask_list = []
@@ -596,42 +604,58 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
                 else:
                     gallery_items.append((None, label))
         
-        return gallery_items, roi_paths if roi_paths else None
+        # Main image is the first frame
+        main_image = gallery_items[0][0] if gallery_items else None
+        
+        return gallery_items, main_image, roi_paths if roi_paths else None
 
     # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
     )
     channel_combination.submit(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
     )
 
     # Restore cached mask overlay or show channel preview when switching images
     selected_index.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
     )
 
     # Update display when layer checkboxes change
     show_image_layer.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
     )
     mask_checkboxes.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
     )
     mask_display_mode.change(
         restore_cached_or_preview,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode],
-        outputs=[image_display, download_roi_file],
+        outputs=[frame_gallery, image_display, download_roi_file],
+    )
+
+    # Handle thumbnail click to update main image
+    def on_thumbnail_select(evt: gr.SelectData, gallery_data):
+        """When user clicks a thumbnail, show that frame in the main image."""
+        if gallery_data and evt.index < len(gallery_data):
+            return gallery_data[evt.index][0]
+        return None
+    
+    frame_gallery.select(
+        on_thumbnail_select,
+        inputs=[frame_gallery],
+        outputs=[image_display],
     )
 
     # Run segmentation and generate ROI download
@@ -639,7 +663,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     # because gr.update() with DownloadButton didn't trigger downloads properly
     def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode, seg_size):
         if not files or index is None:
-            return None, cache, None, gr.update(), gr.update()
+            return None, None, cache, None, gr.update(), gr.update()
         
         filename = os.path.basename(files[index].name)
         cached_list = cache.get(filename, [])
@@ -647,8 +671,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         # Check if max masks reached
         if len(cached_list) >= MAX_MASKS:
             # Return current state without adding new mask
-            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode)
-            return display, cache, roi, gr.update(), gr.update(interactive=False)
+            gallery, main_img, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode)
+            return gallery, main_img, cache, roi, gr.update(), gr.update(interactive=False)
         
         overlays, masks = run_segmentation(files, index, channel_sel, channel_comb, seg_size)
         if masks is not None:
@@ -666,19 +690,19 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
             choices = [f"Mask {i+1}" for i in range(num_masks)]
             
             # Get display with new mask selected
-            display, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
+            gallery, main_img, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
             
             # Disable button if max reached
             btn_interactive = num_masks < MAX_MASKS
             
-            return display, cache, roi, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
+            return gallery, main_img, cache, roi, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
         
-        return None, cache, None, gr.update(), gr.update()
+        return None, None, cache, None, gr.update(), gr.update()
     
     run_cellpose_btn.click(
         run_and_cache_masks,
         inputs=[file_uploader, selected_index, channel_selector, channel_combination, masks_cache, show_image_layer, mask_checkboxes, mask_display_mode, seg_size_slider],
-        outputs=[image_display, masks_cache, download_roi_file, mask_checkboxes, run_cellpose_btn],
+        outputs=[frame_gallery, image_display, masks_cache, download_roi_file, mask_checkboxes, run_cellpose_btn],
     )
 
     # Update mask checkboxes when switching images
