@@ -679,23 +679,30 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
             # Determine mask number (1-based)
             mask_number = len(cached_list) + 1
             
+            # Save ROIs
+            filename_base = os.path.splitext(os.path.basename(files[index].name))[0]
+            roi_path = save_masks_as_rois(masks, filename_base, mask_number)
+            
             # Cache masks by filename (append to list)
             # For stacks, masks will be a list; for single images, it's a single array
             if filename not in cache:
                 cache[filename] = []
-            cache[filename].append({"masks": masks, "roi_path": None})  # ROI export handled later
+            cache[filename].append({"masks": masks, "roi_path": roi_path})
+            
+            # Collect all ROI paths for download
+            all_roi_paths = [item["roi_path"] for item in cache[filename] if item.get("roi_path")]
             
             # Update checkbox choices and select all
             num_masks = len(cache[filename])
             choices = [f"Mask {i+1}" for i in range(num_masks)]
             
             # Get display with new mask selected
-            gallery, main_img, roi = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
+            gallery, main_img, _ = restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, choices, display_mode)
             
             # Disable button if max reached
             btn_interactive = num_masks < MAX_MASKS
             
-            return gallery, main_img, cache, roi, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
+            return gallery, main_img, cache, all_roi_paths, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
         
         return None, None, cache, None, gr.update(), gr.update()
     
