@@ -45,6 +45,19 @@ def run_cellpose_segmentation(image_array, segmentation_size=512):
     return masks
 
 
+def run_cellpose_segmentation_batch(image_list, segmentation_size=512):
+    """Run Cellpose segmentation on a list of images.
+    
+    Args:
+        image_list: list of numpy arrays, each (H, W) or (H, W, C)
+        segmentation_size: size to resize images to for segmentation (default 512)
+    
+    Returns:
+        masks_list: list of labeled mask arrays (original sizes, int32)
+    """
+    return [run_cellpose_segmentation(img, segmentation_size) for img in image_list]
+
+
 def masks_to_overlay(masks, original_image=None, alpha=0.5):
     """Convert segmentation masks to colored overlay image."""
     cmap = plt.cm.tab20
