@@ -127,7 +127,7 @@ def save_masks_as_rois(masks, filename_base, mask_number=1):
     """Save segmentation masks as ROI files for download.
     
     Handles both single masks and lists of masks (for stacks).
-    For stacks, creates a zip containing individual frame ROI zips.
+    For stacks, creates a single zip with ROIs that have position set per frame.
     
     Args:
         masks: labeled mask array from Cellpose, or list of mask arrays for stacks
@@ -137,55 +137,40 @@ def save_masks_as_rois(masks, filename_base, mask_number=1):
     Returns:
         Absolute path to the saved ROI zip file
     """
-    from cellpose import io as cellpose_io
+    from cellpose import utils
+    from roifile import ImagejRoi, roiwrite
     import re
-    import zipfile
-    import tempfile
-    import shutil
     
     # Sanitize filename: keep only alphanumeric, underscores, and hyphens
     safe_filename = re.sub(r'[^\w\-]', '_', filename_base)
+    output_zip = f"{safe_filename}_MASK{mask_number}_rois.zip"
     
-    # Handle single mask (not a list)
+    # Normalize to list
     if not isinstance(masks, list):
-        output_path_base = f"{safe_filename}_MASK{mask_number}"
-        cellpose_io.save_rois(masks, output_path_base)
-        expected_path = f"{output_path_base}_rois.zip"
-        if os.path.exists(expected_path):
-            return os.path.abspath(expected_path)
-        return None
+        masks = [masks]
     
-    # Handle stack (list of masks)
-    if len(masks) == 1:
-        # Single frame stack - treat as single mask
-        output_path_base = f"{safe_filename}_MASK{mask_number}"
-        cellpose_io.save_rois(masks[0], output_path_base)
-        expected_path = f"{output_path_base}_rois.zip"
-        if os.path.exists(expected_path):
-            return os.path.abspath(expected_path)
-        return None
+    all_rois = []
     
-    # Multiple frames - create zip of zips
-    temp_dir = tempfile.mkdtemp()
-    frame_zips = []
-    
-    try:
-        for i, frame_mask in enumerate(masks):
-            frame_base = os.path.join(temp_dir, f"frame_{i+1:03d}")
-            cellpose_io.save_rois(frame_mask, frame_base)
-            frame_zip = f"{frame_base}_rois.zip"
-            if os.path.exists(frame_zip):
-                frame_zips.append(frame_zip)
+    for frame_idx, frame_mask in enumerate(masks):
+        if frame_mask.max() == 0:
+            continue
+            
+        outlines = utils.outlines_list(frame_mask)
+        n_frames = len(masks)
         
-        # Create combined zip
-        output_zip = f"{safe_filename}_MASK{mask_number}_rois.zip"
-        with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for frame_zip in frame_zips:
-                arcname = os.path.basename(frame_zip)
-                zf.write(frame_zip, arcname)
-        
+        for label, outline in zip(np.unique(frame_mask)[1:], outlines):
+            if len(outline) > 0:
+                # Include frame number in name if multi-frame
+                if n_frames > 1:
+                    name = f"f{frame_idx+1:03d}_c{label:04d}"
+                    roi = ImagejRoi.frompoints(outline, name=name, position=frame_idx+1)
+                else:
+                    name = f"c{label:04d}"
+                    roi = ImagejRoi.frompoints(outline, name=name)
+                all_rois.append(roi)
+    
+    if all_rois:
+        roiwrite(output_zip, all_rois, mode='w')
         return os.path.abspath(output_zip)
     
-    finally:
-        # Clean up temp directory
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    return None
