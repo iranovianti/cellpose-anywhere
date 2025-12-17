@@ -350,25 +350,25 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
                         )
                     channel_warning = gr.Markdown("", visible=False)
 
-                    with gr.Row():
-                        # Thumbnail strip on the left
-                        with gr.Column(scale=1, min_width=100):
-                            frame_gallery = gr.Gallery(
-                                label="Frames",
-                                columns=1,
-                                height=500,
-                                object_fit="cover",
-                                allow_preview=False,
-                                show_label=True,
-                                interactive=False,
-                            )
-                        # Main image display on the right
-                        with gr.Column(scale=5):
-                            image_display = gr.Image(
-                                label="Image",
-                                height=500,
-                                show_label=True,
-                            )
+                    # Image display with frame gallery
+                    with gr.Group():
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=100):
+                                frame_gallery = gr.Gallery(
+                                    label="Frames",
+                                    columns=1,
+                                    height=500,
+                                    object_fit="cover",
+                                    allow_preview=False,
+                                    show_label=True,
+                                    interactive=False,
+                                )
+                            with gr.Column(scale=5):
+                                image_display = gr.Image(
+                                    label="Image",
+                                    height=500,
+                                    show_label=True,
+                                )
 
                 # Right: Segmentation controls and download
                 with gr.Column(scale=1):
@@ -510,13 +510,12 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     def restore_cached_or_preview(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode):
         """Show cached segmentation overlay if available, otherwise show channel preview.
         
-        Returns:
-            gallery_items: list of (image, label) tuples for thumbnail gallery
-            main_image: PIL Image for main display (first frame)
-            roi_paths: list of ROI file paths
+        Returns 3 values: gallery_items, main_image, roi_paths
         """
+        empty_result = (None, None, None)
+        
         if not files or index is None:
-            return None, None, None
+            return empty_result
         
         filename = os.path.basename(files[index].name)
         cached_list = cache.get(filename, [])
@@ -531,8 +530,9 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         if any(f is None for f in processed_frames):
             if channel_sel == "Custom":
                 placeholder = create_placeholder_image("Enter channel numbers (e.g., 0, 1, 2)")
-                return [(placeholder, "Placeholder")], placeholder, roi_paths if roi_paths else None
-            return None, None, None
+                items = [(placeholder, "Placeholder")]
+                return (items, placeholder, roi_paths if roi_paths else None)
+            return empty_result
         
         # Get selected mask indices (e.g., ["Mask 1", "Mask 3"] -> [0, 2])
         selected_indices = []
@@ -606,8 +606,9 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
         
         # Main image is the first frame
         main_image = gallery_items[0][0] if gallery_items else None
+        roi_result = roi_paths if roi_paths else None
         
-        return gallery_items, main_image, roi_paths if roi_paths else None
+        return (gallery_items, main_image, roi_result)
 
     # Update image display when channel selection changes (with cached mask overlay if available)
     channel_selector.change(
@@ -662,8 +663,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
     # Note: Using gr.File with direct path return instead of gr.DownloadButton
     # because gr.update() with DownloadButton didn't trigger downloads properly
     def run_and_cache_masks(files, index, channel_sel, channel_comb, cache, show_image, selected_masks, display_mode, seg_size):
+        # 6 outputs: gallery, image, cache, roi, checkboxes, button
+        empty_result = (None, None, cache, None, gr.update(), gr.update())
+        
         if not files or index is None:
-            return None, None, cache, None, gr.update(), gr.update()
+            return empty_result
         
         filename = os.path.basename(files[index].name)
         cached_list = cache.get(filename, [])
@@ -704,7 +708,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="gray", secondary_hue="purple"))
             
             return gallery, main_img, cache, all_roi_paths, gr.update(choices=choices, value=choices), gr.update(interactive=btn_interactive)
         
-        return None, None, cache, None, gr.update(), gr.update()
+        return empty_result
     
     run_cellpose_btn.click(
         run_and_cache_masks,
